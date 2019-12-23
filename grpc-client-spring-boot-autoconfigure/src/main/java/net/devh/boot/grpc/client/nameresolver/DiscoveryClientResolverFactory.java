@@ -67,6 +67,7 @@ public class DiscoveryClientResolverFactory extends NameResolverProvider {
 
     private static final ImmutableList<ServiceInstance> KEEP_PREVIOUS = null;
     private static final ImmutableList<ServiceInstance> NO_SERVERS_FOUND = ImmutableList.of();
+    private static final ImmutableList<ServiceInstance> NOT_INITIALIZED = ImmutableList.of();
 
     /**
      * The constant containing the scheme that will be used by this factory.
@@ -155,13 +156,13 @@ public class DiscoveryClientResolverFactory extends NameResolverProvider {
         requireNonNull(listener, "listener");
 
         this.listenersByName.put(name, listener);
-        final List<ServiceInstance> instances = this.serviceInstanceByName.computeIfAbsent(name, n -> NO_SERVERS_FOUND);
+        final List<ServiceInstance> instances = this.serviceInstanceByName.computeIfAbsent(name, n -> NOT_INITIALIZED);
 
         boolean force = false;
 
         if (instances.isEmpty()) {
             // no instance has GRPC port, clean cached instances to force notifying all listeners.
-            force = true;
+            force = instances != NOT_INITIALIZED;
         } else {
             // notify listener with cached instance first for latency, in most case it improves a lot.
             listener.onAddresses(convert(name, instances), Attributes.EMPTY);
