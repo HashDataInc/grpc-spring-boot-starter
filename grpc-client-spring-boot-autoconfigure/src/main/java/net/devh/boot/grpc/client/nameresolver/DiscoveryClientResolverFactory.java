@@ -203,11 +203,13 @@ public class DiscoveryClientResolverFactory extends NameResolverProvider {
     public final synchronized void refresh(final String name, final boolean force) {
         // no resolver is running with this service name.
         if (!this.listenersByName.containsKey(name)) {
+            log.debug("No listener for {} -> Skipping", name);
             return;
         }
 
         // exit when resolving but not a force refresh
         if (!this.resolvingServices.add(name) && !force) {
+            log.debug("Resolution already in progress for {} -> Skipping", name);
             return;
         }
 
