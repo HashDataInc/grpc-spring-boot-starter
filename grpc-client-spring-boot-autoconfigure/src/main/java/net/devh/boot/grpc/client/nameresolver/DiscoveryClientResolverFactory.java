@@ -42,8 +42,8 @@ import org.springframework.cloud.client.discovery.event.HeartbeatMonitor;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 
@@ -51,6 +51,8 @@ import io.grpc.Attributes;
 import io.grpc.EquivalentAddressGroup;
 import io.grpc.NameResolver;
 import io.grpc.NameResolver.Listener;
+import io.grpc.NameResolver.Listener2;
+import io.grpc.NameResolver.ResolutionResult;
 import io.grpc.NameResolverProvider;
 import io.grpc.Status;
 import io.grpc.StatusException;
@@ -81,7 +83,7 @@ public class DiscoveryClientResolverFactory extends NameResolverProvider {
 
     // Listeners by service name
     @GuardedBy("this")
-    private final Multimap<String, Listener> listenersByName = HashMultimap.create();
+    private final Multimap<String, Listener2> listenersByName = LinkedHashMultimap.create();
     // The resolved service instances for a given name
     @GuardedBy("this")
     private final Map<String, ImmutableList<ServiceInstance>> serviceInstanceByName = new HashMap<>();
@@ -151,7 +153,7 @@ public class DiscoveryClientResolverFactory extends NameResolverProvider {
      * @param name The service name of the listener.
      * @param listener The listener to register.
      */
-    public final synchronized void registerListener(final String name, final Listener listener) {
+    public final synchronized void registerListener(final String name, final Listener2 listener) {
         requireNonNull(name, "name");
         requireNonNull(listener, "listener");
 
@@ -165,7 +167,7 @@ public class DiscoveryClientResolverFactory extends NameResolverProvider {
             force = instances != NOT_INITIALIZED;
         } else {
             // notify listener with cached instance first for latency, in most case it improves a lot.
-            listener.onAddresses(convert(name, instances), Attributes.EMPTY);
+            listener.onResult(convert(name, instances));
         }
 
         refresh(name, force);
@@ -257,7 +259,7 @@ public class DiscoveryClientResolverFactory extends NameResolverProvider {
      * @param instanceList The list of service instance to convert.
      * @return The converted list of instances.
      */
-    private static List<EquivalentAddressGroup> convert(
+    private static ResolutionResult convert(
             final String name,
             final Collection<ServiceInstance> instanceList) {
         final List<EquivalentAddressGroup> targets = new ArrayList<>();
@@ -273,7 +275,9 @@ public class DiscoveryClientResolverFactory extends NameResolverProvider {
             }
         }
 
-        return targets;
+        return ResolutionResult.newBuilder()
+                .setAddresses(targets)
+                .build();
     }
 
     /**
@@ -348,17 +352,17 @@ public class DiscoveryClientResolverFactory extends NameResolverProvider {
             }
             if (!needsToUpdateConnections(newInstanceList)) {
                 log.debug("Nothing has changed... skipping update for {}", this.name);
-                onAddresses(KEEP_PREVIOUS, null, null);
+                onAddresses(KEEP_PREVIOUS, null);
                 return;
             }
             log.debug("Ready to update server list for {}", this.name);
-            final List<EquivalentAddressGroup> targets = convert(this.name, newInstanceList);
-            if (targets.isEmpty()) {
+            final ResolutionResult result = convert(this.name, newInstanceList);
+            if (result.getAddresses().isEmpty()) {
                 throw Status.UNAVAILABLE
                         .withDescription("None of the servers for " + this.name + " specified a gRPC port")
                         .asException();
             } else {
-                onAddresses(newInstanceList, targets, Attributes.EMPTY);
+                onAddresses(newInstanceList, result);
                 log.info("Done updating server list for {}", this.name);
             }
         }
@@ -395,13 +399,11 @@ public class DiscoveryClientResolverFactory extends NameResolverProvider {
          * Updates all registered listeners with the given server addresses.
          *
          * @param serviceList The service list used to determine the targets.
-         * @param targets The target addresses to connect to.
-         * @param attributes The extra information from naming system.
+         * @param result The target addresses to connect to.
          */
         private void onAddresses(
                 final List<ServiceInstance> serviceList,
-                final List<EquivalentAddressGroup> targets,
-                final Attributes attributes) {
+                final ResolutionResult result) {
             if (Thread.currentThread().isInterrupted()) {
                 return; // Cancelled
             }
@@ -409,8 +411,8 @@ public class DiscoveryClientResolverFactory extends NameResolverProvider {
                 resolvingServices.remove(this.name);
                 if (serviceList != KEEP_PREVIOUS) {
                     serviceInstanceByName.put(this.name, ImmutableList.copyOf(serviceList));
-                    for (final Listener listener : listenersByName.get(this.name)) {
-                        listener.onAddresses(targets, attributes);
+                    for (final Listener2 listener : listenersByName.get(this.name)) {
+                        listener.onResult(result);
                     }
                 }
             }

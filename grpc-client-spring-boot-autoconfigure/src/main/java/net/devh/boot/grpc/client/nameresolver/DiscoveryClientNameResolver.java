@@ -37,8 +37,7 @@ final class DiscoveryClientNameResolver extends NameResolver {
     private final DiscoveryClientResolverFactory factory;
 
     // Following fields must be accessed from syncContext
-    private Listener listener;
-    private boolean shutdown;
+    private Listener2 listener;
 
     public DiscoveryClientNameResolver(final String name,
             final DiscoveryClientResolverFactory factory) {
@@ -52,9 +51,8 @@ final class DiscoveryClientNameResolver extends NameResolver {
     }
 
     @Override
-    public void start(final Listener listener) {
+    public void start(final Listener2 listener) {
         checkState(this.listener == null, "already started");
-        checkState(!this.shutdown, "already shutdown");
         this.listener = checkNotNull(listener, "listener");
         this.factory.registerListener(this.name, listener);
     }
@@ -62,21 +60,14 @@ final class DiscoveryClientNameResolver extends NameResolver {
     @Override
     public void refresh() {
         checkState(this.listener != null, "not started");
-        checkState(!this.shutdown, "already shutdown");
         this.factory.refresh(this.name, false);
     }
 
     @Override
     public void shutdown() {
-        if (this.shutdown) {
-            return;
-        }
-        this.shutdown = true;
-
         if (this.listener != null) {
             this.factory.unregisterListener(this.name, this.listener);
         }
-
         this.listener = null;
     }
 
