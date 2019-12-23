@@ -47,23 +47,23 @@ final class DiscoveryClientNameResolver extends NameResolver {
     }
 
     @Override
-    public final String getServiceAuthority() {
+    public String getServiceAuthority() {
         return this.name;
     }
 
     @Override
     public void start(final Listener listener) {
         checkState(this.listener == null, "already started");
+        checkState(!this.shutdown, "already shutdown");
         this.listener = checkNotNull(listener, "listener");
         this.factory.registerListener(this.name, listener);
     }
 
     @Override
     public void refresh() {
-        checkState(listener != null, "not started");
-        if (!this.shutdown) {
-            this.factory.refresh(this.name, false);
-        }
+        checkState(this.listener != null, "not started");
+        checkState(!this.shutdown, "already shutdown");
+        this.factory.refresh(this.name, false);
     }
 
     @Override
